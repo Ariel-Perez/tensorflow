@@ -22,6 +22,7 @@ import math
 import os
 import random
 import zipfile
+import codecs
 
 import numpy as np
 from six.moves import urllib
@@ -46,7 +47,7 @@ def maybe_download(filename, expected_bytes):
             '. Can you get to it with a browser?')
     return filename
 
-filename = maybe_download('text8.zip', 31344016)
+filename = 'data/corpus.txt'  #maybe_download('text8.zip', 31344016)
 
 
 # Read the data into a list of strings.
@@ -56,7 +57,12 @@ def read_data(filename):
         data = f.read(f.namelist()[0]).split()
     return data
 
-words = read_data(filename)
+def read_file(filename):
+  with codecs.open(filename, 'r', encoding='utf8') as f:
+    data = f.read().split()
+  return data
+
+words = read_file(filename)  # read_data(filename)
 print('Data size', len(words))
 
 # Step 2: Build the dictionary and replace rare words with UNK token.
@@ -188,7 +194,7 @@ with graph.as_default():
         valid_embeddings, normalized_embeddings, transpose_b=True)
 
 # Step 5: Begin training.
-num_steps = 100001
+num_steps = 200001
 
 with tf.Session(graph=graph) as session:
     # We must initialize all variables before we use them.
@@ -230,6 +236,44 @@ with tf.Session(graph=graph) as session:
                 print(log_str)
     final_embeddings = normalized_embeddings.eval()
     saver.save(session, 'my-model')
+  saver = tf.train.Saver({'embeddings': embeddings})
+  # We must initialize all variables before we use them.
+  tf.initialize_all_variables().run()
+  print("Initialized")
+
+  average_loss = 0
+  for step in xrange(num_steps):
+    batch_inputs, batch_labels = generate_batch(
+        batch_size, num_skips, skip_window)
+    feed_dict = {train_inputs : batch_inputs, train_labels : batch_labels}
+
+    # We perform one update step by evaluating the optimizer op (including it
+    # in the list of returned values for session.run()
+    _, loss_val = session.run([optimizer, loss], feed_dict=feed_dict)
+    average_loss += loss_val
+
+    if step % 2000 == 0:
+      if step > 0:
+        average_loss /= 2000
+      # The average loss is an estimate of the loss over the last 2000 batches.
+      print("Average loss at step ", step, ": ", average_loss)
+      average_loss = 0
+
+    # Note that this is expensive (~20% slowdown if computed every 500 steps)
+    if step % 10000 == 0:
+      sim = similarity.eval()
+      for i in xrange(valid_size):
+        valid_word = reverse_dictionary[valid_examples[i]]
+        top_k = 8 # number of nearest neighbors
+        nearest = (-sim[i, :]).argsort()[1:top_k+1]
+        log_str = "Nearest to %s:" % valid_word
+        for k in xrange(top_k):
+          close_word = reverse_dictionary[nearest[k]]
+          log_str = "%s %s," % (log_str, close_word)
+        print(log_str)
+        saver.save(session, 'embeddings', global_step=step)
+  final_embeddings = normalized_embeddings.eval()
+  saver.save(session, 'word_embeddings')
 
 # Step 6: Visualize the embeddings.
 
@@ -250,7 +294,6 @@ def plot_with_labels(low_dim_embs, labels, filename='tsne.png'):
 
     plt.savefig(filename)
 
-try:
     from sklearn.manifold import TSNE
     import matplotlib.pyplot as plt
 
