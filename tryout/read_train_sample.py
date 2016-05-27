@@ -23,7 +23,6 @@ test_features = np.reshape(
     (n_test_samples, n_features))
 
 test_labels = np.reshape(test_data[:, n_features], (n_test_samples, 1))
-print test_labels.shape
 
 
 def weight_variable(shape):
@@ -69,21 +68,28 @@ filenames = [
 
 
 sess = tf.InteractiveSession()
+saver = tf.train.Saver({"W": W, "b": b})
 
 sess.run(tf.initialize_all_variables())
 
 for i in range(2000):
     # batch = input_pipeline(filenames, batch_size=10)
-    tt, output, output_test, acc = sess.run([train_step, o, o_t, accuracy], feed_dict={
-        x: train_features,
-        y_: train_labels,
-        x_t: test_features,
-        y_t: test_labels})
+    tt, output, output_test, acc = sess.run(
+        [train_step, o, o_t, accuracy],
+        feed_dict={
+            x: train_features,
+            y_: train_labels,
+            x_t: test_features,
+            y_t: test_labels
+        })
+
     if i % 200 == 0:
         # print W.eval()
         # print output
         print acc
         print output_test
+
+        saver.save(sess, 'my-model', global_step=i)
 
 # correct_prediction = tf.equal(tf.argmax(y, 1), tf.argmax(y_, 1))
 
