@@ -21,6 +21,7 @@ import math
 import os
 import random
 import zipfile
+import codecs
 
 import numpy as np
 from six.moves import urllib
@@ -43,7 +44,7 @@ def maybe_download(filename, expected_bytes):
         'Failed to verify ' + filename + '. Can you get to it with a browser?')
   return filename
 
-filename = maybe_download('text8.zip', 31344016)
+filename = 'data/corpus.txt'  #maybe_download('text8.zip', 31344016)
 
 
 # Read the data into a list of strings.
@@ -53,7 +54,12 @@ def read_data(filename):
     data = f.read(f.namelist()[0]).split()
   return data
 
-words = read_data(filename)
+def read_file(filename):
+  with codecs.open(filename, 'r', encoding='utf8') as f:
+    data = f.read().split()
+  return data
+
+words = read_file(filename)  # read_data(filename)
 print('Data size', len(words))
 
 # Step 2: Build the dictionary and replace rare words with UNK token.
@@ -172,9 +178,10 @@ with graph.as_default():
       valid_embeddings, normalized_embeddings, transpose_b=True)
 
 # Step 5: Begin training.
-num_steps = 100001
+num_steps = 200001
 
 with tf.Session(graph=graph) as session:
+  saver = tf.train.Saver({'embeddings': embeddings})
   # We must initialize all variables before we use them.
   tf.initialize_all_variables().run()
   print("Initialized")
@@ -209,7 +216,9 @@ with tf.Session(graph=graph) as session:
           close_word = reverse_dictionary[nearest[k]]
           log_str = "%s %s," % (log_str, close_word)
         print(log_str)
+        saver.save(session, 'embeddings', global_step=step)
   final_embeddings = normalized_embeddings.eval()
+  saver.save(session, 'word_embeddings')
 
 # Step 6: Visualize the embeddings.
 
@@ -228,15 +237,15 @@ def plot_with_labels(low_dim_embs, labels, filename='tsne.png'):
 
   plt.savefig(filename)
 
-try:
-  from sklearn.manifold import TSNE
-  import matplotlib.pyplot as plt
+# try:
+#   from sklearn.manifold import TSNE
+#   import matplotlib.pyplot as plt
 
-  tsne = TSNE(perplexity=30, n_components=2, init='pca', n_iter=5000)
-  plot_only = 500
-  low_dim_embs = tsne.fit_transform(final_embeddings[:plot_only,:])
-  labels = [reverse_dictionary[i] for i in xrange(plot_only)]
-  plot_with_labels(low_dim_embs, labels)
+#   tsne = TSNE(perplexity=30, n_components=2, init='pca', n_iter=5000)
+#   plot_only = 500
+#   low_dim_embs = tsne.fit_transform(final_embeddings[:plot_only,:])
+#   labels = [reverse_dictionary[i] for i in xrange(plot_only)]
+#   plot_with_labels(low_dim_embs, labels)
 
-except ImportError:
-  print("Please install sklearn and matplotlib to visualize embeddings.")
+# except ImportError:
+#   print("Please install sklearn and matplotlib to visualize embeddings.")
