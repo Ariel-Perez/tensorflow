@@ -23,6 +23,7 @@ import os
 import random
 import zipfile
 import codecs
+import json
 
 import numpy as np
 from six.moves import urllib
@@ -57,16 +58,18 @@ def read_data(filename):
         data = f.read(f.namelist()[0]).split()
     return data
 
+
 def read_file(filename):
-  with codecs.open(filename, 'r', encoding='utf8') as f:
-    data = f.read().split()
-  return data
+    """Read a file."""
+    with codecs.open(filename, 'r', encoding='utf8') as f:
+        data = f.read().split()
+    return data
 
 words = read_file(filename)  # read_data(filename)
 print('Data size', len(words))
 
 # Step 2: Build the dictionary and replace rare words with UNK token.
-vocabulary_size = 5
+vocabulary_size = 50000
 
 
 def build_dataset(words):
@@ -90,6 +93,11 @@ def build_dataset(words):
     return data, count, dictionary, reverse_dictionary
 
 data, count, dictionary, reverse_dictionary = build_dataset(words)
+with codecs.open("dictionary.json", "w", encoding="utf8") as f:
+    json.dump({
+        'dictionary': dictionary,
+        'reverse_dictionary': reverse_dictionary
+    }, f, indent=2)
 del words  # Hint to reduce memory.
 print('Most common words (+UNK)', count[:5])
 print('Sample data', data[:10])
