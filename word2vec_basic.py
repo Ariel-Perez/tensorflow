@@ -69,7 +69,7 @@ words = read_file(filename)  # read_data(filename)
 print('Data size', len(words))
 
 # Step 2: Build the dictionary and replace rare words with UNK token.
-vocabulary_size = 50000
+vocabulary_size = 17000
 
 
 def build_dataset(words):
@@ -243,7 +243,7 @@ with tf.Session(graph=graph) as session:
                     log_str = "%s %s," % (log_str, close_word)
                 print(log_str)
     final_embeddings = normalized_embeddings.eval()
-    saver.save(session, 'my-model')
+    saver.save(session, 'clean-embeddings')
 
 # Step 6: Visualize the embeddings.
 

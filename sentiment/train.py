@@ -3,7 +3,6 @@ import json
 import codecs
 import numpy as np
 import tensorflow as tf
-from tensorflow.models.rnn import rnn, rnn_cell
 
 
 vocabulary_size = 50000
@@ -11,24 +10,29 @@ embedding_size = 128  # Dimension of the embedding vector.
 
 unknown_tag = "UNK"
 
-data_path = "../data/small_corpus.txt"
+data_path = "../data/training_data.csv"
 dictionary_path = "../dictionary.json"
-embeddings_path = "../word_embeddings"
+embeddings_path = "../word-embeddings-basic"
 
 # Parameters
 learning_rate = 0.001
-training_iters = 100000
+training_iters = 10000
 batch_size = 128
 display_step = 10
 max_size = 80
 
 # Network Parameters
 n_hidden = 128  # hidden layer num of features
-n_classes = 2  # MNIST total classes (0-9 digits)
+n_classes = 2  # total classes (Positive, Neutral, Negative)
 
 # tf Graph input
-x = tf.placeholder("float", [None, None, embedding_size])
-y = tf.placeholder("float", [None, n_classes])
+train_inputs = tf.placeholder(tf.int32, shape=[None])
+train_labels = tf.placeholder(tf.float32, shape=[None, n_classes])
+lengths = tf.placeholder(tf.int32, shape=[None])
+
+# x = tf.placeholder("float", [None, max_size, embedding_size], name="x")
+# y = tf.placeholder("float", [None, n_classes], name="y")
+# lengths = tf.placeholder("int8", [None, 1], name="length")
 
 # Define weights
 weights = {
@@ -60,69 +64,92 @@ def load_training_data(path):
     with codecs.open(path, 'r', encoding='utf8') as f:
         text = f.read()
 
-    samples = text.split(' . ')
-    return [sample.split(' ') for sample in samples]
+    samples = [data.split(',') for data in text.split('\n')[1:]]
+    sample_texts = [sample[0].split(' ') for sample in samples]
+    sample_labels = [sample[1:1 + n_classes] for sample in samples]
+    return sample_texts, sample_labels
 
 
-def embed_text(text_samples, embeddings, dictionary):
-    """Embed text into vectors."""
-    # indices = [[dictionary.get(word, dictionary[unknown_tag])
-    #             for word in sample] for sample in text_samples]
-    indices = [None] * len(text_samples)
-    for i, sample in enumerate(text_samples):
-        indices[i] = [dictionary[unknown_tag]] * max_size
-        for j, word in enumerate(sample):
-            if word in dictionary:
-                indices[i][j] = dictionary[word]
+def embed(indices, embeddings):
+    """Embed into vectors."""
+    embedded_indices = tf.nn.embedding_lookup(embeddings, indices)
 
-    # indices = []
-    # for sample in text_samples:
-    #     indices.extend([dictionary.get(word, dictionary[unknown_tag])
-    #                     for word in sample])
-
-    early_stop = [len(sample) for sample in text_samples]
-
-    embed = [tf.nn.embedding_lookup(embeddings, sample_indices)
-             for sample_indices in indices]
-    # embed = tf.nn.embedding_lookup(embeddings, indices)
-    # print embed.get_shape()
-    return embed, early_stop
+    return embedded_indices  # .split(0, batch_size, embedded_indices)
 
 
-def RNN(x, weights, biases, lengths=None):
+def RNN(inputs, weights, biases, lengths=None):
     """Run rnn."""
     # Define a lstm cell with tensorflow
-    lstm_cell = rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0)
+    # TODO CHECK THIS IS SPLITTING CORRECTLY
+    x = tf.split(0, max_size, inputs)
+    print "[Check split is right]"
+
+    lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(
+        n_hidden, forget_bias=1.0, state_is_tuple=True)
 
     # Get lstm cell output
-    outputs, states = rnn.rnn(
-        lstm_cell, x, dtype=tf.float32, sequence_length=lengths)
+    outputs, states = tf.nn.rnn(
+        lstm_cell, x, dtype=tf.float32)  # , sequence_length=lengths)
 
     # Linear activation, using rnn inner loop last output
     return tf.matmul(outputs[-1], weights['out']) + biases['out']
 
 
+data_index = 0
+
+
+def generate_batch(samples, labels, batch_size, dictionary, embeddings):
+    """Generate batch data."""
+    global data_index
+
+    # Pad to batch_size * max_size
+    batch_samples = np.zeros((batch_size, max_size), np.int)
+    batch_labels = np.zeros((batch_size, n_classes), np.float32)
+    early_stop = np.zeros(batch_size, np.int)
+
+    unknown_index = dictionary[unknown_tag]
+    for i, sample in enumerate(
+            samples[data_index: data_index + batch_size]):
+
+        early_stop[i] = len(sample)
+        for j, word in enumerate(sample):
+            batch_samples[i][j] = dictionary.get(
+                word, unknown_index)
+
+    for i, sample_labels in enumerate(
+            labels[data_index: data_index + batch_size]):
+        batch_labels[i] = np.array(sample_labels, np.float32)
+
+    return batch_samples, batch_labels, early_stop
+
+
+print "Loading dictionary..."
 dictionary, reverse_dictionary = load_embedding_dictionary(dictionary_path)
 
 embeddings = tf.Variable(
     tf.random_uniform([vocabulary_size, embedding_size], -1.0, 1.0),
     name='embeddings'
 )
-samples = load_training_data(data_path)
-embed, early_stop = embed_text(samples, embeddings, dictionary)
 
-pred = RNN(embed, weights, biases)
+print "Loading data..."
+samples, labels = load_training_data(data_path)
+
+print "Building graph..."
+x = embed(train_inputs, embeddings)
+pred = RNN(x, weights, biases, lengths)
 
 # Define loss and optimizer
-cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(pred, y))
+cost = tf.nn.l2_loss(pred - train_labels)
+
 optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
 
 # Evaluate model
-correct_pred = tf.equal(tf.argmax(pred, 1), tf.argmax(y, 1))
+correct_pred = tf.equal(tf.argmax(pred, 1), tf.argmax(train_labels, 1))
 accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
 
 # Add ops to save and restore all the variables.
+print "Loading embeddings..."
 saver = tf.train.Saver({
     'embeddings': embeddings
 })
@@ -137,25 +164,35 @@ with tf.Session() as sess:
     saver.restore(sess, embeddings_path)
     print("Model restored.")
 
-    # step = 1
-    # # Keep training until reach max iterations
-    # while step * batch_size < training_iters:
-    #     batch_x, batch_y = mnist.train.next_batch(batch_size)
-    #     print np.shape(batch_x), np.shape(batch_y)
-    #     # Reshape data to get 28 seq of 28 elements
-    #     batch_x = batch_x.reshape((batch_size, n_steps, n_input))
-    #     # Run optimization op (backprop)
-    #     sess.run(optimizer, feed_dict={x: batch_x, y: batch_y})
-    #     if step % display_step == 0:
-    #         # Calculate batch accuracy
-    #         acc = sess.run(accuracy, feed_dict={x: batch_x, y: batch_y})
-    #         # Calculate batch loss
-    #         loss = sess.run(cost, feed_dict={x: batch_x, y: batch_y})
-    #         print "Iter " + str(step * batch_size) + ", Minibatch Loss= " + \
-    #               "{:.6f}".format(loss) + ", Training Accuracy= " + \
-    #               "{:.5f}".format(acc)
-    #     step += 1
-    # print "Optimization Finished!"
+    print("Optimizing..")
+    step = 1
+    # # Keep training until reach max iterations),
+    while step < training_iters:
+        print "Step"
+        batch_x, batch_y, early_stop = generate_batch(
+            samples, labels, batch_size, dictionary, embeddings)
+
+        batch_x = batch_x.reshape((-1))
+
+        feed_dict = {
+            train_inputs: batch_x,
+            train_labels: batch_y,
+            lengths: early_stop
+        }
+
+        sess.run(optimizer, feed_dict=feed_dict)
+
+        if True:
+            # Calculate batch accuracy
+            acc = sess.run(accuracy, feed_dict=feed_dict)
+            # Calculate batch loss
+            loss = sess.run(cost, feed_dict=feed_dict)
+            print "Iter " + str(step) + ", Minibatch Loss= " + \
+                  "{:.6f}".format(loss) + ", Training Accuracy= " + \
+                  "{:.5f}".format(acc)
+        step += 1
+
+    print "Optimization Finished!"
 
     # # Calculate accuracy for 128 mnist test images
     # test_len = 128
