@@ -16,8 +16,8 @@ embeddings_path = "../word-embeddings-basic"
 
 # Parameters
 learning_rate = 0.001
-training_iters = 10000
-batch_size = 128
+training_iters = 1000
+batch_size = 2
 display_step = 10
 max_size = 80
 
@@ -26,7 +26,7 @@ n_hidden = 128  # hidden layer num of features
 n_classes = 2  # total classes (Positive, Neutral, Negative)
 
 # tf Graph input
-train_inputs = tf.placeholder(tf.int32, shape=[None])
+train_inputs = tf.placeholder(tf.int32, shape=[None, max_size])
 train_labels = tf.placeholder(tf.float32, shape=[None, n_classes])
 lengths = tf.placeholder(tf.int32, shape=[None])
 
@@ -66,7 +66,7 @@ def load_training_data(path):
 
     samples = [data.split(',') for data in text.split('\n')[1:]]
     sample_texts = [sample[0].split(' ') for sample in samples]
-    sample_labels = [sample[1:1 + n_classes] for sample in samples]
+    sample_labels = [[sample[1], sample[3]] for sample in samples]
     return sample_texts, sample_labels
 
 
@@ -77,19 +77,14 @@ def embed(indices, embeddings):
     return embedded_indices  # .split(0, batch_size, embedded_indices)
 
 
-def RNN(inputs, weights, biases, lengths=None):
+def RNN(x, weights, biases, lengths):
     """Run rnn."""
-    # Define a lstm cell with tensorflow
-    # TODO CHECK THIS IS SPLITTING CORRECTLY
-    x = tf.split(0, max_size, inputs)
-    print "[Check split is right]"
-
     lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(
         n_hidden, forget_bias=1.0, state_is_tuple=True)
 
     # Get lstm cell output
     outputs, states = tf.nn.rnn(
-        lstm_cell, x, dtype=tf.float32)  # , sequence_length=lengths)
+        lstm_cell, x, dtype=tf.float32, sequence_length=lengths)
 
     # Linear activation, using rnn inner loop last output
     return tf.matmul(outputs[-1], weights['out']) + biases['out']
@@ -98,7 +93,7 @@ def RNN(inputs, weights, biases, lengths=None):
 data_index = 0
 
 
-def generate_batch(samples, labels, batch_size, dictionary, embeddings):
+def generate_batch(samples, labels, batch_size, dictionary):
     """Generate batch data."""
     global data_index
 
@@ -108,20 +103,27 @@ def generate_batch(samples, labels, batch_size, dictionary, embeddings):
     early_stop = np.zeros(batch_size, np.int)
 
     unknown_index = dictionary[unknown_tag]
-    for i, sample in enumerate(
-            samples[data_index: data_index + batch_size]):
+    for i in range(batch_size):
+        sample_index = (data_index + i) % len(samples)
+
+        sample = samples[sample_index]
+        sample_labels = labels[sample_index]
 
         early_stop[i] = len(sample)
         for j, word in enumerate(sample):
-            batch_samples[i][j] = dictionary.get(
-                word, unknown_index)
+            batch_samples[i][j] = dictionary.get(word, unknown_index)
 
-    for i, sample_labels in enumerate(
-            labels[data_index: data_index + batch_size]):
         batch_labels[i] = np.array(sample_labels, np.float32)
+
+    data_index = (data_index + batch_size) % len(samples)
 
     return batch_samples, batch_labels, early_stop
 
+
+def normalize(x):
+    """Normalize the data."""
+    mean, variance = tf.nn.moments(x, [0])
+    return (x - mean) / variance
 
 print "Loading dictionary..."
 dictionary, reverse_dictionary = load_embedding_dictionary(dictionary_path)
@@ -135,12 +137,33 @@ print "Loading data..."
 samples, labels = load_training_data(data_path)
 
 print "Building graph..."
-x = embed(train_inputs, embeddings)
-pred = RNN(x, weights, biases, lengths)
+embedded_input = embed(train_inputs, embeddings)
+# normalized_input = normalize(embedded_input)
+
+# Prepare data shape to match `rnn` function requirements
+# Current data input shape: (batch_size, max_size, embedding_size)n_steps
+# Permuting batch_size and max_size
+formatted_input = tf.transpose(embedded_input, [1, 0, 2])
+# Reshaping to (max_size*batch_size, embedding_size)
+formatted_input = tf.reshape(formatted_input, [-1, embedding_size])
+# Split to get a list of 'max_size' tensors of shape
+#    (batch_size, embedding_size)
+# This input shape is required by `rnn` function
+formatted_input = tf.split(0, max_size, formatted_input)
+
+pred = tf.nn.softmax(RNN(formatted_input, weights, biases, lengths))
+
+# # Define loss and optimizer
+# cost = tf.nn.l2_loss(pred - train_labels)
+
+# optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
+
+# # Evaluate model
+# correct_pred = tf.equal(tf.round(pred), train_labels)
+# accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
 # Define loss and optimizer
-cost = tf.nn.l2_loss(pred - train_labels)
-
+cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(pred, train_labels))
 optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
 
 # Evaluate model
@@ -168,11 +191,10 @@ with tf.Session() as sess:
     step = 1
     # # Keep training until reach max iterations),
     while step < training_iters:
-        print "Step"
         batch_x, batch_y, early_stop = generate_batch(
-            samples, labels, batch_size, dictionary, embeddings)
+            samples, labels, batch_size, dictionary)
 
-        batch_x = batch_x.reshape((-1))
+        # batch_x = batch_x.reshape((-1))
 
         feed_dict = {
             train_inputs: batch_x,
@@ -182,8 +204,17 @@ with tf.Session() as sess:
 
         sess.run(optimizer, feed_dict=feed_dict)
 
-        if True:
+        if step % display_step == 0:
             # Calculate batch accuracy
+            # e = sess.run(embedded_input, feed_dict=feed_dict)
+            # print e
+            f = sess.run(formatted_input, feed_dict=feed_dict)
+            print "Formatted"
+            print batch_x
+            print f
+            o = sess.run(pred, feed_dict=feed_dict)
+            print o
+            print batch_y
             acc = sess.run(accuracy, feed_dict=feed_dict)
             # Calculate batch loss
             loss = sess.run(cost, feed_dict=feed_dict)

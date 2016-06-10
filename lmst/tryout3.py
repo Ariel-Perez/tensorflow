@@ -7,7 +7,6 @@ Project: https://github.com/aymericdamien/TensorFlow-Examples/
 '''
 
 import tensorflow as tf
-from tensorflow.models.rnn import rnn, rnn_cell
 import numpy as np
 
 # Import MINST data
@@ -59,10 +58,10 @@ def RNN(x, weights, biases):
     x = tf.split(0, n_steps, x)
 
     # Define a lstm cell with tensorflow
-    lstm_cell = rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0)
+    lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0)
 
     # Get lstm cell output
-    outputs, states = rnn.rnn(lstm_cell, x, dtype=tf.float32)
+    outputs, states = tf.nn.rnn(lstm_cell, x, dtype=tf.float32)
 
     # Linear activation, using rnn inner loop last output
     return tf.matmul(outputs[-1], weights['out']) + biases['out']
