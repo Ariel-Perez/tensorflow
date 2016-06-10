@@ -17,7 +17,7 @@ embeddings_path = "../word-embeddings-basic"
 # Parameters
 learning_rate = 0.001
 training_iters = 1000
-batch_size = 2
+batch_size = 128
 display_step = 10
 max_size = 80
 
@@ -208,10 +208,6 @@ with tf.Session() as sess:
             # Calculate batch accuracy
             # e = sess.run(embedded_input, feed_dict=feed_dict)
             # print e
-            f = sess.run(formatted_input, feed_dict=feed_dict)
-            print "Formatted"
-            print batch_x
-            print f
             o = sess.run(pred, feed_dict=feed_dict)
             print o
             print batch_y

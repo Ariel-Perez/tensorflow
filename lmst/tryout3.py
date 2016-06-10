@@ -37,11 +37,9 @@ y = tf.placeholder("float", [None, n_classes])
 
 # Define weights
 weights = {
-    'hidden': tf.Variable(tf.random_normal([n_input, n_hidden])),
     'out': tf.Variable(tf.random_normal([n_hidden, n_classes]))
 }
 biases = {
-    'hidden': tf.Variable(tf.random_normal([n_hidden])),
     'out': tf.Variable(tf.random_normal([n_classes]))
 }
 
@@ -58,7 +56,8 @@ def RNN(x, weights, biases):
     x = tf.split(0, n_steps, x)
 
     # Define a lstm cell with tensorflow
-    lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0)
+    lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(
+        n_hidden, forget_bias=1.0, state_is_tuple=True)
 
     # Get lstm cell output
     outputs, states = tf.nn.rnn(lstm_cell, x, dtype=tf.float32)
@@ -86,7 +85,6 @@ with tf.Session() as sess:
     # Keep training until reach max iterations
     while step * batch_size < training_iters:
         batch_x, batch_y = mnist.train.next_batch(batch_size)
-        print np.shape(batch_x), np.shape(batch_y)
         # Reshape data to get 28 seq of 28 elements
         batch_x = batch_x.reshape((batch_size, n_steps, n_input))
         # Run optimization op (backprop)
