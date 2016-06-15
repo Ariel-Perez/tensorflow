@@ -28,10 +28,10 @@ if __name__ == '__main__':
     # inputs for rnn needs to be a list, each item being a timestep.
     # we need to split our input into each timestep, and reshape it
     # because split keeps dims by default
-    inputs = [tf.reshape(i, (batch_size, seq_width))
-              for i in tf.split(0, n_steps, seq_input)]
+    inputs = [tf.squeeze(i) for i in tf.split(0, n_steps, seq_input)]
 
-    cell = tf.nn.rnn_cell.LSTMCell(size, seq_width, initializer=initializer)
+    cell = tf.nn.rnn_cell.LSTMCell(
+        size, seq_width, initializer=initializer, state_is_tuple=True)
     initial_state = cell.zero_state(batch_size, tf.float32)
 
     # ========= This is the most important part ==========
@@ -42,6 +42,10 @@ if __name__ == '__main__':
         initial_state=initial_state,
         sequence_length=early_stop
     )
+
+    # tf.dynamic_stitch([0, 1], [early_stop - 1, [0, 1]])
+    real_outputs = tf.squeeze(tf.gather(outputs, early_stop - 1))
+    true_outputs = tf.pack([real_outputs[i, i] for i in range(2)])
 
     # usual crap
     iop = tf.initialize_all_variables()
@@ -55,9 +59,16 @@ if __name__ == '__main__':
 
     print "outputs, should be 2 things one of length 4 and other of 6"
     outs = session.run(outputs, feed_dict=feed)
-    print len(outs)
+    print np.shape(outs)
     for xx in outs:
         print xx
+
+    real_outs = session.run(real_outputs, feed_dict=feed)
+    print "real output"
+    print np.shape(real_outs)
+    print real_outs
+    true_outs = session.run(true_outputs, feed_dict=feed)
+    print true_outs
 
     print "states, 2 things total both of size 2 " \
         "which is the size of the hidden state"
